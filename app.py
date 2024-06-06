@@ -1,261 +1,146 @@
-import snowflake.connector
-from config import Config
-import logging
+import streamlit as st
+from snowflake_automation.automation_script import snowflake_tasks
+import time
 import pandas as pd
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
 
-def get_snowflake_connection():
-    return snowflake.connector.connect(**Config.as_dict())
+def admin_footer():
+    if st.sidebar.radio("JESUS", ["Admin", "User"]) == "Admin":
+        st.sidebar.title("Admin Actions, kamal hassan")
+        st.title("DATA LAKEAR")
 
-# schema to schema within a database
-def copy_schema(source_schema, destination_schema, destination_database=None):
-    conn = None
-    try:
-        conn = get_snowflake_connection()
-        cur = conn.cursor()
+        st.header("Copy Realm Schema")
+        source_schema = st.text_input('Source Schema')
+        destination_schema = st.text_input('Destination Schema')
+        destination_database = st.text_input('Database Name')
 
-        logging.info(f"Attempting to clone schema '{source_schema}' to '{destination_schema}' in database '{destination_database}'")
-        sql_statement = f"CREATE SCHEMA IF NOT EXISTS {destination_schema.upper()} CLONE {source_schema.upper()}"
+        if st.button('Copy Schema'):
+            with st.spinner("Please wait..."):
+                time.sleep(3)
+                success = snowflake_tasks.copy_schema(source_schema, destination_schema, destination_database)
+                if success:
+                    st.success("Schema copied successfully... :)")
+                else:
+                    st.error("An error occurred while copying the schema. Please check the logs for more details.")
 
-        cur.execute(sql_statement)
-        cur.close()
+        st.header("Copy Schema DB to DB")
+        source_schema = st.text_input('Source Schema', key='source_schema')
+        destination_schema = st.text_input('Destination Schema', key='destination_schema')
+        source_database = st.text_input('Source Database Name', key='source_database')
+        destination_database = st.text_input('Destination Database Name', key='destination_database')
 
-        logging.info(f"Schema '{source_schema}' successfully cloned to '{destination_schema}' in database '{destination_database}'")
-        return True
+        if st.button("Copy DB-DB"):
+            with st.spinner("Please Wait..."):
+                time.sleep(3)  # Simulate a time-consuming operation
+                snowflake_tasks.copy_schema_database(source_schema, destination_schema, source_database, destination_database)
+                st.success("Schema copied to database successfully.")
 
-    except Exception as e:
-        logging.error(f"Error occurred while copying schema: {e}")
-        return False
 
-    finally:
-        if conn:
-            conn.close()
+        # Create Warehouse
+        st.header("Create Warehouse")
+        warehouse_name = st.text_input("Warehouse Name")
+        warehouse_size = st.selectbox('Warehouse Size', ['X-SMALL', 'SMALL', 'MEDIUM', 'LARGE', 'X-LARGE', '2X-LARGE', '3X-LARGE', '4X-LARGE', '5X-LARGE', '6X-LARGE'])
+        if st.button('Create Warehouse'):
+            with st.spinner("please wait"):
+                time.sleep(3)
+                snowflake_tasks.create_warehouse(warehouse_name, warehouse_size)
+                st.success("Warehouse created successfully...:)")
 
-# Function to copy schema between databases to database
-def copy_schema_database(source_schema, destination_schema, source_database=None, destination_database=None):
-    conn = None
-    try:
-        conn = get_snowflake_connection()
-        cur = conn.cursor()
-        logging.info(f"Attempting to clone schema '{source_schema}' to '{destination_schema}' in database '{destination_database}'")
+        # Create Resource Monitor
+        st.header("Create Resource Monitor")
+        monitor_name = st.text_input('Monitor Name')
+        credit_quota = st.number_input('Credit Quota', min_value=0)
+        if st.button('Create Monitor'):
+            snowflake_tasks.create_resource_monitor(monitor_name, credit_quota)
+            st.success("Resource monitor created successfully..:)")
+
+        # Create Role
+        st.header("Create Role")
+        role_name = st.text_input("Role Name", key='role_name')
+        if st.button('Create Role'):
+            snowflake_tasks.create_role(role_name)
+            st.success("Role created successfully..:)")
+
+        # Grant Privileges!!!
+        st.header("Grant Privileges")
+        #st.subheader("Grant SELECT Privilege on a Table")
+
+        user_name_input = st.text_input("User Name", key="user_name_input")
+        role_name_select = st.text_input("Role Name", key='role_name_select')
+        database_name = st.text_input("Database Name", key='database_name')
+        schema_name = st.text_input("Schema Name", key='schema_name')
+        table_name = st.text_input("Table Name", key='table_name')
+
+        if st.button("Grant SELECT Privilege"):
+            try:
+                snowflake_tasks.grant_select_on_table(user_name_input, role_name_select, database_name, schema_name, table_name)
+                st.success("Granted SELECT privilege on table successfully...:)")
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
+
+        # Query Performance!!!
+        st.header("Query Performance")
+        if st.button('Show Recent Queries'):
+            results = snowflake_tasks.get_query_performance()
+            st.write(results)
+
+        # Creating user!!!
+        st.header("Create User")
+        user_name = st.text_input("User Name", key='user_name')
+        user_email = st.text_input("User Email", key='user_email')
+        user_password = st.text_input("User Password", type="password", key='user_password')
+        user_confirm_password = st.text_input("Confirm Password", type="password", key='user_confirm_password')
+        if st.button("Create User"):
+            if user_password == user_confirm_password:
+                snowflake_tasks.create_user(user_name, user_email, user_password)
+                st.success("User created successfully..:)")
+            else:
+                st.error("Passwords do not match. Please try again.")
+
+        st.header('Drop User')
+        user_names = st.text_input("User Name", key="user_names")
+        if st.button("Drop User"):
+            try:
+                snowflake_tasks.drop_user(user_names)
+                st.success("User removed successfully")
+            except Exception as e:
+                st.error(f"An error occurred: {e}")
         
-        if source_database is not None and destination_database is not None:
-            sql_statement = f"""CREATE SCHEMA IF NOT EXISTS "{destination_database.upper()}"."{destination_schema.upper()}" CLONE "{source_database.upper()}"."{source_schema}" """
-            cur.execute(sql_statement)
-            logging.info("Schema cloned successfully...:)")
+        st.title("Data Lake Account Dashboard")
+
+        st.header("Available Users")
+        try:
+            users_data = snowflake_tasks.get_users()
+            if users_data:
+                st.table(users_data)
+                st.success("Users data retrieved successfully.")
+            else:
+                st.write("No users found.")
+        except Exception as e:
+            st.error(f"Error fetching users data: {e}")
+
+        # Fetching data!!!
+        total_credits_used, daily_credits = snowflake_tasks.fetch_credits_data()
+
+        # Converting fetched data into DataFrame!!!
+        daily_credits_df = pd.DataFrame(daily_credits, columns=['usage_date', 'daily_credits_used'])
+        allocated_credits = 400
+        remaining_credits = allocated_credits - float(total_credits_used) if total_credits_used else 0  # Convert to float
+        # Display metrics!!!
+        st.metric(label="Total Allocated Credits", value=allocated_credits)
+        st.metric(label="Total Credits Used", value=float(total_credits_used) if total_credits_used else 0)  # Convert to float
+        st.metric(label="Remaining Credits", value=remaining_credits)
+
+        # Process daily credits data!!!
+        st.subheader("Daily Credits Usage")
+        if not daily_credits_df.empty:
+            # Generate plot for daily credits usage!!!
+            fig = snowflake_tasks.plot_credits_usage(daily_credits_df, daily_credits_df['daily_credits_used'])
+            st.pyplot(fig)
         else:
-            logging.error("Source and/or destination database names are missing or empty.")
+            st.write("No data available for daily credits usage.")
 
-    except Exception as e:
-        logging.error(f"An error occurred: {str(e)}")
-    finally:
-        if conn:
-            conn.close()
+        # Display daily credits data in a table!!!
+        st.subheader('Daily Credits Usage Data')
+        st.dataframe(daily_credits_df)
 
-# granting ownershipt to user for database
-def grant_ownership_on_database(database_name, user_name):
-    conn = None
-    try:
-        conn = get_snowflake_connection()
-        cur = conn.cursor()
-        logging.info(f"Granting ownership on database '{database_name}' to user '{user_name}'")
-        
-        if database_name:
-            sql_statement = f"GRANT OWNERSHIP ON DATABASE {database_name} TO {user_name}"
-            cur.execute(sql_statement)
-            logging.info("Ownership granted successfully.")
-        else:
-            logging.error("Database name is missing or empty.")
-
-    except Exception as e:
-        logging.error(f"An error occurred: {str(e)}")
-    finally:
-        if conn:
-            conn.close()
-
-# warehouse creation function!!!
-def create_warehouse(warehouse_name, warehouse_size):
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-    cur.execute(f"""
-        CREATE WAREHOUSE {warehouse_name}
-        WITH
-        WAREHOUSE_SIZE = '{warehouse_size}'
-        AUTO_SUSPEND = 300
-        AUTO_RESUME = TRUE
-        INITIALLY_SUSPENDED = TRUE
-    """)
-    cur.close()
-    conn.close()
-
-# resource creation function, deviding credits for particular uage
-def create_resource_monitor(monitor_name, credit_quota):
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(f"""
-            CREATE RESOURCE MONITOR {monitor_name}
-            SET CREDIT_QUOTA = {credit_quota}
-            NOTIFY_USERS = (NITHIN, 'Nithin Nithin', 'Keerthan')
-            TRIGGERS ON 90 PERCENT DO SUSPEND
-        """)
-    except Exception as e:
-        print(f"Error: {e}")
-    finally:
-        cur.close()
-        conn.close()
-
-# creating roles!!!
-def create_role(role_name):
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-    cur.execute(f"CREATE ROLE {role_name}")
-    cur.close()
-    conn.close()
-
-# grant access to specified tables or etc
-def grant_select_on_table(user_name_input, role_name, database_name, schema_name, table_name):
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(f"GRANT ROLE {role_name} TO USER {user_name_input}")
-        logging.info(f"Granted role {role_name} to user {user_name_input}")
-    
-        cur.execute(f"GRANT SELECT ON TABLE {database_name}.{schema_name}.{table_name} TO ROLE {role_name}")
-        logging.info(f"Granted SELECT on {database_name}.{schema_name}.{table_name} to role {role_name}")
-        
-        print(f"Granted SELECT on {database_name}.{schema_name}.{table_name} to role {role_name}")
-    except Exception as e:
-        print(f"Error: {e}")
-        logging.error(f"Error granting SELECT privilege: {e}")
-        raise e
-    finally:
-        cur.close()
-        conn.close()
-
-# getting recent commands history in snowflake!!!
-def get_query_performance():
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT *
-        FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-        WHERE EXECUTION_STATUS = 'SUCCESS'
-        ORDER BY START_TIME DESC
-        LIMIT 10
-    """)
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
-    return results
-
-# creating user!!!
-def create_user(user_name, user_email, user_password):
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(f"""
-            CREATE USER {user_name}
-            PASSWORD = '{user_password}'
-            LOGIN_NAME = '{user_name}'
-            EMAIL = '{user_email}'
-        """)
-
-        logging.info("User created successfully..:)")
-    finally:
-        cur.close()
-        conn.close()
-
-# drop user!!!
-def drop_user(user_name):
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute(f"DROP USER {user_name}")
-        logging.info("User deleted successfully..:)")
-    except Exception as e:
-        logging.error(f"Error deleting user: {e}")
-        raise e
-    finally:
-        cur.close()
-        conn.close()
-
-
-# credits data fetching!!!
-def fetch_credits_data():
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-
-    try:
-        # Fetch total credits used in the last month
-        cur.execute("""
-            SELECT 
-                SUM(credits_used) AS total_credits_used 
-            FROM 
-                SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
-            WHERE 
-                start_time >= DATEADD('month', -1, CURRENT_DATE());
-
-        """)
-        total_credits_used = cur.fetchone()[0]
-
-        # Fetch daily usage credits in a month
-        cur.execute("""
-            SELECT 
-                start_time::date AS usage_date, 
-                SUM(credits_used) AS daily_credits_used
-            FROM 
-                SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY
-            WHERE 
-                start_time >= DATEADD('month', -1, CURRENT_DATE())
-            GROUP BY 
-                start_time::date
-            ORDER BY 
-                usage_date
-        """)
-        daily_credits = cur.fetchall()
-
-    except Exception as e:
-        logging.error(f"Error fetching data: {e}")
-        total_credits_used = None
-        daily_credits = []
-
-    finally:
-        cur.close()
-        conn.close()
-
-    return total_credits_used, daily_credits
-
-# Function to plot credits usage
-# Function to plot credits usage
-def plot_credits_usage(daily_credits_df, daily_credits_used):
-    fig, ax = plt.subplots(figsize=(20, 6))
-    ax.bar(daily_credits_df['usage_date'], daily_credits_used)
-    ax.set_xlabel("Date")
-    ax.set_ylabel("Credits Used")
-    ax.set_title("Daily Credits Usage for " + daily_credits_df['usage_date'].iloc[0].strftime("%B %Y"))
-
-    # Format x-axis labels to display month name
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
-    plt.xticks(rotation=45)
-    
-    # Set y-axis limits to range from 0 to 10
-    ax.set_ylim(0, 10)
-    
-    plt.tight_layout()  # Adjust layout to prevent clipping of labels
-    return fig
-
-# users data!!!
-def get_users():
-    conn = get_snowflake_connection()
-    cur = conn.cursor()
-    try:
-        cur.execute("SHOW USERS")
-        users_data = cur.fetchall()
-        return users_data
-    except Exception as e:
-        raise e
-    finally:
-        cur.close()
-        conn.close()
+admin_footer()
